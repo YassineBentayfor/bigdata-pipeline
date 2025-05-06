@@ -47,11 +47,23 @@ def main():
                 break
         row = json.loads(msg.value().decode('utf-8'))
         rows.append(row)
-        if len(rows) >= 5000:  # Smaller batch size
+        if len(rows) >= 5000:  # Batch size
             df = pd.DataFrame(rows)
-            # Fix hrmn column: convert to zero-padded 4-digit string
+            # Fix hrmn column: strip non-digits, zero-pad to 4 digits
             if 'hrmn' in df.columns:
-                df['hrmn'] = df['hrmn'].fillna(0).astype(int).astype(str).str.zfill(4)
+                df['hrmn'] = (
+                    df['hrmn']
+                    .fillna('0000')
+                    .astype(str)
+                    .str.replace(r'\D', '', regex=True)
+                    .str.zfill(4)
+                )
+            # Fix com column: string with leading zeros
+            if 'com' in df.columns:
+                df['com'] = df['com'].fillna('0000').astype(str).str.zfill(4)
+            # Ensure all columns are strings to avoid type errors
+            for col in df.columns:
+                df[col] = df[col].astype(str)
             year = df['an'].iloc[0]
             output = io.BytesIO()
             df.to_parquet(output, engine='pyarrow', index=False)
@@ -71,7 +83,17 @@ def main():
     if rows:
         df = pd.DataFrame(rows)
         if 'hrmn' in df.columns:
-            df['hrmn'] = df['hrmn'].fillna(0).astype(int).astype(str).str.zfill(4)
+            df['hrmn'] = (
+                df['hrmn']
+                .fillna('0000')
+                .astype(str)
+                .str.replace(r'\D', '', regex=True)
+                .str.zfill(4)
+            )
+        if 'com' in df.columns:
+            df['com'] = df['com'].fillna('0000').astype(str).str.zfill(4)
+        for col in df.columns:
+            df[col] = df[col].astype(str)
         year = df['an'].iloc[0]
         output = io.BytesIO()
         df.to_parquet(output, engine='pyarrow', index=False)
