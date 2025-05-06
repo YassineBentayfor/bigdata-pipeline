@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
 
 USER airflow
 RUN pip install --no-cache-dir \
-    apache-airflow-providers-python==4.9.0 \
+    apache-airflow-providers-standard==1.0.0 \
     confluent-kafka==2.5.0 \
     minio==7.2.8 \
     pandas==2.2.3 \
