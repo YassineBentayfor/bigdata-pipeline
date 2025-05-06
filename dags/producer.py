@@ -1,14 +1,7 @@
-import pandas as pd
 from confluent_kafka import Producer
+import pandas as pd
 import json
-
-# Kafka configuration
-kafka_config = {
-    'bootstrap.servers': 'kafka:9092',
-}
-
-# Producer setup
-producer = Producer(kafka_config)
+import csv
 
 def delivery_report(err, msg):
     if err is not None:
@@ -16,16 +9,37 @@ def delivery_report(err, msg):
     else:
         print(f"Message delivered to {msg.topic()} [{msg.partition()}]")
 
-# Read CSV and publish chunks
-csv_file = '/opt/airflow/dags/data/accidents_2005_2020_cleaned.csv'
-chunk_size = 10000
+def main():
+    # Kafka configuration
+    conf = {
+        'bootstrap.servers': 'projet-kafka-1:9092',
+        'client.id': 'accident-producer'
+    }
+    producer = Producer(conf)
 
-for chunk in pd.read_csv(csv_file, sep=';', encoding='latin1', chunksize=chunk_size, quotechar='"'):
-    # Convert chunk to JSON
-    records = chunk.to_dict(orient='records')
-    for record in records:
-        producer.produce('accidents', value=json.dumps(record).encode('utf-8'), callback=delivery_report)
+    # Read CSV in chunks with latin1 encoding and semicolon delimiter
+    csv_path = '/opt/airflow/dags/data/accidents_2005_2020_cleaned.csv'
+    chunk_size = 10000
+    for chunk in pd.read_csv(
+        csv_path,
+        chunksize=chunk_size,
+        encoding='latin1',
+        sep=';',
+        quoting=csv.QUOTE_MINIMAL
+    ):
+        for _, row in chunk.iterrows():
+            # Convert row to JSON
+            message = row.to_json()
+            producer.produce(
+                topic='accidents',
+                value=message.encode('utf-8'),
+                callback=delivery_report
+            )
+        producer.poll(0)
     producer.flush()
-    print(f"Published chunk of {len(records)} records")
 
-print("Producer finished")
+if __name__ == '__main__':
+    main()
+
+
+    

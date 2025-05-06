@@ -26,6 +26,13 @@ def main():
     if not minio_client.bucket_exists(bucket_name):
         minio_client.make_bucket(bucket_name)
 
+    # ── Clean out existing raw/ objects to avoid duplicates ─────────────
+    print("Deleting existing objects under raw/ …")
+    for obj in minio_client.list_objects(bucket_name, prefix='raw/', recursive=True):
+        minio_client.remove_object(bucket_name, obj.object_name)
+    print("Cleared raw/ prefix.")
+
+    # ── Ingestion loop with idle timeout ───────────────────────────────
     rows = []
     batch_count = 0
     start_time = time.time()
