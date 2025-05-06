@@ -12,7 +12,7 @@ def run_consumer():
 with DAG(
     'ingest_accidents',
     start_date=datetime(2025, 5, 6),
-    schedule_interval=None,  # Run manually for now
+    schedule=None,  # Run manually for now
     catchup=False,
 ) as dag:
     produce_task = PythonOperator(
