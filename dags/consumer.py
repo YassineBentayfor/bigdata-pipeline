@@ -1,98 +1,90 @@
-import pandas as pd
 from confluent_kafka import Consumer, KafkaError
 from minio import Minio
-import io
 import json
-import os
+import pandas as pd
+import pyarrow.parquet as pq
+import pyarrow as pa
+import io
+import time
 
-# Kafka configuration
-kafka_config = {
-    'bootstrap.servers': 'kafka:9092',
-    'group.id': 'accidents_consumer',
-    'auto.offset.reset': 'earliest',
-}
+def main():
+    # Kafka configuration
+    conf = {
+        'bootstrap.servers': 'projet-kafka-1:9092',
+        'group.id': 'accident-consumer',
+        'auto.offset.reset': 'earliest'
+    }
+    consumer = Consumer(conf)
+    consumer.subscribe(['accidents'])
 
-# MinIO configuration
-minio_client = Minio(
-    'minio:9000',
-    access_key='admin',
-    secret_key='password',
-    secure=False,
-)
+    # MinIO configuration
+    minio_client = Minio(
+        'projet-minio-1:9000',
+        access_key='admin',
+        secret_key='password',
+        secure=False
+    )
+    bucket_name = 'accidents'
 
-# Ensure bucket exists
-bucket_name = 'accidents'
-if not minio_client.bucket_exists(bucket_name):
-    minio_client.make_bucket(bucket_name)
+    # Ensure bucket exists
+    if not minio_client.bucket_exists(bucket_name):
+        minio_client.make_bucket(bucket_name)
 
-# Consumer setup
-consumer = Consumer(kafka_config)
-consumer.subscribe(['accidents'])
-
-# Collect records
-records = []
-batch_size = 10000
-year_counts = {}
-
-while True:
-    msg = consumer.poll(timeout=1.0)
-    if msg is None:
-        break
-    if msg.error():
-        if msg.error().code() == KafkaError._PARTITION_EOF:
+    # Process messages
+    rows = []
+    batch_count = 0
+    start_time = time.time()
+    while True:
+        msg = consumer.poll(timeout=1.0)
+        if msg is None:
             continue
-        else:
-            print(f"Consumer error: {msg.error()}")
-            break
-    
-    # Parse message
-    record = json.loads(msg.value().decode('utf-8'))
-    records.append(record)
-    
-    # Track year for partitioning
-    year = record.get('an', 'unknown')
-    year_counts[year] = year_counts.get(year, 0) + 1
-    
-    # Write batch to MinIO
-    if len(records) >= batch_size:
-        df = pd.DataFrame(records)
-        year = df['an'].mode()[0]  # Most common year in batch
-        output_path = f"raw/year={year}/part-{len(year_counts[year])}.parquet"
-        
-        # Convert to Parquet
-        buffer = io.BytesIO()
-        df.to_parquet(buffer, index=False)
-        buffer.seek(0)
-        
-        # Upload to MinIO
+        if msg.error():
+            if msg.error().code() == KafkaError._PARTITION_EOF:
+                print("Reached end of partition")
+                break
+            else:
+                print(f"Consumer error: {msg.error()}")
+                break
+        row = json.loads(msg.value().decode('utf-8'))
+        rows.append(row)
+        if len(rows) >= 5000:  # Smaller batch size
+            df = pd.DataFrame(rows)
+            # Fix hrmn column: convert to zero-padded 4-digit string
+            if 'hrmn' in df.columns:
+                df['hrmn'] = df['hrmn'].fillna(0).astype(int).astype(str).str.zfill(4)
+            year = df['an'].iloc[0]
+            output = io.BytesIO()
+            df.to_parquet(output, engine='pyarrow', index=False)
+            output.seek(0)
+            object_name = f'raw/year={year}/part-{batch_count}.parquet'
+            minio_client.put_object(
+                bucket_name,
+                object_name,
+                output,
+                length=output.getbuffer().nbytes
+            )
+            batch_count += 1
+            print(f"Wrote batch {batch_count} ({len(rows)} rows) to {object_name} in {time.time() - start_time:.2f} seconds")
+            rows = []
+            start_time = time.time()
+    # Handle final partial batch
+    if rows:
+        df = pd.DataFrame(rows)
+        if 'hrmn' in df.columns:
+            df['hrmn'] = df['hrmn'].fillna(0).astype(int).astype(str).str.zfill(4)
+        year = df['an'].iloc[0]
+        output = io.BytesIO()
+        df.to_parquet(output, engine='pyarrow', index=False)
+        output.seek(0)
+        object_name = f'raw/year={year}/part-{batch_count}.parquet'
         minio_client.put_object(
             bucket_name,
-            output_path,
-            buffer,
-            length=buffer.getbuffer().nbytes,
-            content_type='application/octet-stream',
+            object_name,
+            output,
+            length=output.getbuffer().nbytes
         )
-        print(f"Wrote {len(records)} records to s3://accidents/{output_path}")
-        records = []
+        print(f"Wrote final batch {batch_count + 1} ({len(rows)} rows) to {object_name} in {time.time() - start_time:.2f} seconds")
+    consumer.close()
 
-# Write remaining records
-if records:
-    df = pd.DataFrame(records)
-    year = df['an'].mode()[0]
-    output_path = f"raw/year={year}/part-{len(year_counts.get(year, [0]))}.parquet"
-    
-    buffer = io.BytesIO()
-    df.to_parquet(buffer, index=False)
-    buffer.seek(0)
-    
-    minio_client.put_object(
-        bucket_name,
-        output_path,
-        buffer,
-        length=buffer.getbuffer().nbytes,
-        content_type='application/octet-stream',
-    )
-    print(f"Wrote {len(records)} records to s3://accidents/{output_path}")
-
-consumer.close()
-print("Consumer finished")
+if __name__ == '__main__':
+    main()
