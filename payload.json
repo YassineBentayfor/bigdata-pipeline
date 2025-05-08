@@ -1,0 +1,22 @@
+{
+  "action": "CreateSubmissionRequest",
+  "appResource": "/opt/spark_jobs/spark_preprocess_accidents.py",
+  "clientSparkVersion": "3.4.1",
+  "mainClass": "org.apache.spark.deploy.PythonRunner",
+  "environmentVariables": {},
+  "sparkProperties": {
+    "spark.app.name":        "PreprocessAccidents",
+    "spark.master":          "spark://spark:7077",
+    "spark.submit.deployMode":"client",
+    "spark.driver.memory":   "2g",
+    "spark.executor.memory": "4g",
+    "spark.jars": "/opt/bitnami/spark/jars/hadoop-aws-3.3.4.jar,/opt/bitnami/spark/jars/aws-java-sdk-bundle-1.12.262.jar",
+    "spark.hadoop.fs.s3a.endpoint":             "http://minio:9000",
+    "spark.hadoop.fs.s3a.access.key":           "admin",
+    "spark.hadoop.fs.s3a.secret.key":           "password",
+    "spark.hadoop.fs.s3a.path.style.access":    "true",
+    "spark.hadoop.fs.s3a.connection.ssl.enabled":"false",
+    "spark.sql.shuffle.partitions":             "50"
+  },
+  "appArgs": []
+}
