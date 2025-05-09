@@ -85,7 +85,7 @@ services:
     depends_on:
       - spark
     ports:
-      - "8083:8082"   
+      - "8083:8082"
   trino:
     image: trinodb/trino:428
     ports:
@@ -93,20 +93,35 @@ services:
     volumes:
       - ./trino_catalog:/etc/trino/catalog
   opensearch:
-    image: opensearchproject/opensearch:2.9.0
-    ports:
-      - "9200:9200"
-    environment:
-      - discovery.type=single-node
-      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      image: opensearchproject/opensearch:2.9.0
+      ports:
+        - "9200:9200"
+      environment:
+        - discovery.type=single-node
+        - "OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g"
+        - "plugins.security.disabled=true"
+      volumes:
+        - opensearch_data:/usr/share/opensearch/data
+      healthcheck:
+        test: ["CMD", "curl", "-s", "http://localhost:9200"]
+        interval: 30s
+        timeout: 10s
+        retries: 5
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:2.9.0
     ports:
       - "5601:5601"
     environment:
-      - OPENSEARCH_HOSTS=http://opensearch:9200
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
     depends_on:
-      - opensearch
+      opensearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-s", "http://opensearch:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
   jupyter:
     build:
       context: .
@@ -116,5 +131,7 @@ services:
     volumes:
       - ./notebooks:/home/jovyan/work
       - ./scripts:/home/jovyan/work/scripts
+      - ./certs/ca/ca.pem:/home/jovyan/certs/ca.pem:ro
 volumes:
   postgres_data:
+  opensearch_data:

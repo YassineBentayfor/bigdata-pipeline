@@ -1,0 +1,13 @@
+network.host: 0.0.0.0
+plugins.security.authcz.admin_dn:
+  - "CN=ADMIN,O=EXAMPLE,L=PARIS,ST=IDF,C=FR"
+plugins.security.nodes_dn:
+  - "CN=os01,O=EXAMPLE,L=PARIS,ST=IDF,C=FR"
+plugins.security.ssl.transport.pemcert_filepath: /usr/share/opensearch/config/os01.pem
+plugins.security.ssl.transport.pemkey_filepath: /usr/share/opensearch/config/os01.key
+plugins.security.ssl.transport.pemtrustedcas_filepath: /usr/share/opensearch/config/ca.pem
+plugins.security.ssl.http.pemcert_filepath: /usr/share/opensearch/config/os01.pem
+plugins.security.ssl.http.pemkey_filepath: /usr/share/opensearch/config/os01.key
+plugins.security.ssl.http.pemtrustedcas_filepath: /usr/share/opensearch/config/ca.pem
+plugins.security.ssl.http.enabled: true
+plugins.security.allow_default_init_securityindex: true

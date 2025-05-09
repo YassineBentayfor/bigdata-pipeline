@@ -1,4 +1,5 @@
 from opensearchpy import OpenSearch
+from opensearchpy.helpers import bulk
 import pandas as pd
 import pyarrow.parquet as pq
 from minio import Minio
@@ -11,13 +12,10 @@ minio_client = Minio(
     secure=False
 )
 
-# Connexion à OpenSearch
+# Connexion à OpenSearch sans SSL
 os_client = OpenSearch(
-    hosts=[{"host": "opensearch", "port": 9200}],
-    http_auth=None,
-    use_ssl=False,
-    verify_certs=False,
-    ssl_show_warn=False
+    hosts=[{"host": "opensearch", "port": 9200, "scheme": "http"}],
+    http_auth=None
 )
 
 # Lire les fichiers Parquet depuis MinIO
@@ -25,6 +23,7 @@ bucket_name = "processed"
 prefix = "accidents_processed/"
 objects = minio_client.list_objects(bucket_name, prefix=prefix, recursive=True)
 parquet_files = [obj.object_name for obj in objects if obj.object_name.endswith(".parquet")]
+print(f"Found {len(parquet_files)} Parquet files: {parquet_files}")
 
 # Créer l'index OpenSearch
 index_name = "accidents"
@@ -53,22 +52,47 @@ if not os_client.indices.exists(index_name):
             }
         }
     )
+else:
+    print(f"Index {index_name} already exists")
 
-# Indexer les données
+# Indexer les données en bulk
+actions = []
 for file in parquet_files:
+    print(f"Processing file: {file}")
     # Télécharger le fichier Parquet
     local_file = f"/tmp/{file.split('/')[-1]}"
     minio_client.fget_object(bucket_name, file, local_file)
     
     # Lire le Parquet
     df = pd.read_parquet(local_file)
+    print(f"File {file} has {len(df)} rows")
     
-    # Ajouter un champ geo_point pour la carte
-    df["location"] = df.apply(lambda row: {"lat": row["lat"], "lon": row["long"]}, axis=1)
+    # Filtrer les lignes avec lat/long valides
+    df = df[df['lat'].notnull() & df['long'].notnull()]
+    df = df[df['lat'].apply(lambda x: isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.', '', 1).isdigit()))]
+    df = df[df['long'].apply(lambda x: isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.', '', 1).isdigit()))]
+    print(f"File {file} after filtering: {len(df)} valid rows")
     
-    # Indexer chaque ligne
+    # Préparer les actions pour le bulk
     for _, row in df.iterrows():
         doc = row.to_dict()
-        os_client.index(index=index_name, body=doc)
+        doc["location"] = {"lat": float(row["lat"]), "lon": float(row["long"])}
+        actions.append({
+            "_index": index_name,
+            "_source": doc
+        })
+    
+    # Indexer par lots de 1000
+    if len(actions) >= 1000:
+        success, failed = bulk(os_client, actions)
+        print(f"Indexed {success} documents, {failed} failed")
+        actions = []
+
+# Indexer les actions restantes
+if actions:
+    success, failed = bulk(os_client, actions)
+    print(f"Indexed {success} documents, {failed} failed")
+else:
+    print("No documents to index")
 
 print(f"Indexation terminée dans l'index {index_name}")
